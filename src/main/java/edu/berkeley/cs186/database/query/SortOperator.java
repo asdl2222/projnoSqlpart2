@@ -72,8 +72,22 @@ public class SortOperator {
      */
     public Run sortRun(Run run) {
         // TODO(proj3_part1): implement
+        List<Record> sortedResult = new ArrayList<>();
+        Iterator<Record> temp = run.iterator();
 
-        return null;
+        do  {
+            sortedResult.add(temp.next());
+            if (!temp.hasNext()) {
+                break;
+            }
+        } while((temp.hasNext()));
+
+        sortedResult.sort(this.comparator);
+        Run result = createRun();
+        result.addRecords(sortedResult);
+
+        // return null;
+        return result;
     }
 
     /**
@@ -86,8 +100,30 @@ public class SortOperator {
      */
     public Run mergeSortedRuns(List<Run> runs) {
         // TODO(proj3_part1): implement
+        PriorityQueue<Pair<Record, Integer>> myPriorityQueue = new PriorityQueue<>(numBuffers - 1, new RecordPairComparator());
+        List<Iterator<Record>> iterTemp = new ArrayList<>();
+        for (int i = 0; i < runs.size(); i++) {
+            Iterator<Record> currents = runs.get(i).iterator();
+            if(currents.hasNext()) {
+                myPriorityQueue.add(new Pair<>(currents.next(), i));
+                iterTemp.add(currents);
+            }
+        }
+        Run result = createRun();
+        do {
+            Pair<Record, Integer> tempFirst = myPriorityQueue.poll();
+            result.addRecord(tempFirst.getFirst().getValues());
+            Iterator<Record> currents = iterTemp.get(tempFirst.getSecond());
+            if (currents.hasNext()) {
+                myPriorityQueue.add(new Pair<>(currents.next(), tempFirst.getSecond()));
+            }
+            if (myPriorityQueue.isEmpty()) {
+                break;
+            }
 
-        return null;
+        } while(!myPriorityQueue.isEmpty());
+
+        return result;
     }
 
     /**
@@ -99,8 +135,20 @@ public class SortOperator {
      */
     public List<Run> mergePass(List<Run> runs) {
         // TODO(proj3_part1): implement
+        List<Run> result = new ArrayList<>();
+        List<Run> temp = new ArrayList<>();
+        int counter = 0;
+        while (runs.size() > counter) {
+            for (int i = 0; i < numBuffers -1; i ++) {
+                temp.add(runs.get(counter));
+                counter += 1;
+            }
+            result.add(mergeSortedRuns(temp));
+            temp.clear();
+        }
 
-        return Collections.emptyList();
+        return result;
+        //return Collections.emptyList();
     }
 
     /**
@@ -110,8 +158,23 @@ public class SortOperator {
      */
     public String sort() {
         // TODO(proj3_part1): implement
+        List<Run> result = new ArrayList<>();
+        Iterator<Page> iterTempPage = transaction.getPageIterator(tableName);
+        do {
+            BacktrackingIterator<Record> record = transaction.getBlockIterator(tableName, iterTempPage, numBuffers);
+            Run tempRun = createRunFromIterator(record);
+            result.add(sortRun(tempRun));
+            if (!iterTempPage.hasNext()) {
+                break;
+            }
+        } while (!iterTempPage.hasNext());
 
-        return this.tableName; // TODO(proj3_part1): replace this!
+        while (result.size() > 1) {
+            result = mergePass(result);
+        }
+        return result.get(0).tableName();
+
+        //return this.tableName; // TODO(proj3_part1): replace this!
     }
 
     public Iterator<Record> iterator() {

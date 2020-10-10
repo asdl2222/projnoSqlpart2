@@ -60,6 +60,23 @@ class SortMergeOperator extends JoinOperator {
             // TODO(proj3_part1): implement
             // Hint: you may find the helper methods getTransaction() and getRecordIterator(tableName)
             // in JoinOperator useful here.
+            String sortedRighttemp = new SortOperator(getTransaction(),getRightTableName(),new RightRecordComparator()).sort();
+            String sortedLefttemp =  new SortOperator(getTransaction(),getLeftTableName(),new LeftRecordComparator()).sort();
+            rightIterator = SortMergeOperator.this.getRecordIterator(sortedRighttemp);
+            leftIterator = SortMergeOperator.this.getRecordIterator(sortedLefttemp);
+            rightRecord = rightIterator.hasNext() ? rightIterator.next() : null;
+            leftRecord = leftIterator.hasNext() ? leftIterator.next() : null;
+            // We mark the first record so we can reset to it when we advance the left record.
+            if (rightRecord != null) {
+                rightIterator.markPrev();
+            } else { return; }
+
+            try {
+                fetchNextRecord();
+            } catch (NoSuchElementException e) {
+                this.nextRecord = null;
+            }
+
         }
 
         /**
@@ -70,8 +87,72 @@ class SortMergeOperator extends JoinOperator {
         @Override
         public boolean hasNext() {
             // TODO(proj3_part1): implement
+            return this.nextRecord != null;
+            //return false;
+        }
 
-            return false;
+        // Added my own function
+        private void fetchNextRecord() {
+            if (leftRecord == null) {
+                throw new NoSuchElementException("There is no record to fetch");
+            }
+            this.nextRecord = null;
+
+            do {
+                if (rightRecord != null && !marked) {
+                    while (compareToLeftRight() > 0) {
+                        rightRecord = rightIterator.hasNext() ? rightIterator.next() : null;
+                    }
+
+                    while (compareToLeftRight() < 0) {
+                        leftRecord = leftIterator.hasNext() ? leftIterator.next() : null;
+                        if (leftRecord == null) {
+                            //throw new NoSuchElementException("There is no record to fetch");
+                            break;
+                        }
+                    }
+
+                    marked = true;
+                    rightIterator.markPrev();
+                }
+                if (rightRecord != null && compareToLeftRight() == 0) {
+                    nextRecord = joinRecords(leftRecord, rightRecord);
+                    rightRecord = rightIterator.hasNext() ? rightIterator.next() : null;
+                }
+                else {
+                    this.rightIterator.reset();
+                    assert(rightIterator.hasNext());
+                    rightRecord = rightIterator.next();
+                    leftRecord = leftIterator.hasNext() ? leftIterator.next() : null;
+                    if (leftRecord == null) {
+                        break;
+                    }
+                    marked = false;
+                }
+            } while (!hasNext());
+        }
+
+        // Added from BNLJOperator.java
+        /**
+         * Helper method to create a joined record from a record of the left relation
+         * and a record of the right relation.
+         * @param leftRecord Record from the left relation
+         * @param rightRecord Record from the right relation
+         * @return joined record
+         */
+        private Record joinRecords(Record leftRecord, Record rightRecord) {
+            List<DataBox> leftValues = new ArrayList<>(leftRecord.getValues());
+            List<DataBox> rightValues = new ArrayList<>(rightRecord.getValues());
+            leftValues.addAll(rightValues);
+            return new Record(leftValues);
+        }
+
+        // Added my own function
+        private int compareToLeftRight() {
+            DataBox leftTemp = leftRecord.getValues().get(SortMergeOperator.this.getLeftColumnIndex());
+            DataBox rightTemp = rightRecord.getValues().get(SortMergeOperator.this.getRightColumnIndex());
+
+            return leftTemp.compareTo(rightTemp);
         }
 
         /**
@@ -83,8 +164,18 @@ class SortMergeOperator extends JoinOperator {
         @Override
         public Record next() {
             // TODO(proj3_part1): implement
+            if (!this.hasNext()) {
+                throw new NoSuchElementException();
+            }
 
-            throw new NoSuchElementException();
+            Record nextRecord = this.nextRecord;
+            try {
+                this.fetchNextRecord();
+            } catch (NoSuchElementException e) {
+                this.nextRecord = null;
+            }
+            return nextRecord;
+            //throw new NoSuchElementException();
         }
 
         @Override
