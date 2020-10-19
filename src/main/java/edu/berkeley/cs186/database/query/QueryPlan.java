@@ -231,15 +231,33 @@ public class QueryPlan {
         // Pass 1: Iterate through all single tables. For each single table, find
         // the lowest cost QueryOperator to access that table. Construct a mapping
         // of each table name to its lowest cost operator.
+        Map<Set<String>, QueryOperator> pass1 = new HashMap<>();
+        Set temp = new HashSet<>();
+        temp.add(this.startTableName);
+        pass1.put(temp, this.minCostSingleAccess(this.startTableName));
+        for (String tempName: this.joinTableNames) {
+            temp = new HashSet<>();
+            temp.add(tempName);
+            pass1.put(temp, minCostSingleAccess(tempName));
+        }
 
         // Pass i: On each pass, use the results from the previous pass to find the
         // lowest cost joins with each single table. Repeat until all tables have
         // been joined.
+        Map<Set<String>, QueryOperator> joinTable = new HashMap<>(pass1);
+
+        while (joinTable.size() != 1) {
+            joinTable = this.minCostJoins(joinTable, pass1);
+
+        }
 
         // Get the lowest cost operator from the last pass, add GROUP BY and SELECT
         // operators, and return an iterator on the final operator
+        this.finalOperator = this.minCostOperator(joinTable);
+        this.addGroupBy();
+        this.addProjects();
 
-        return this.executeNaive(); // TODO(proj3_part2): Replace this!!! Allows you to test intermediate functionality
+        return finalOperator.execute(); // TODO(proj3_part2): Replace this!!! Allows you to test intermediate functionality
     }
 
     /**
@@ -329,17 +347,30 @@ public class QueryPlan {
         QueryOperator minOp = null;
 
         // Find the cost of a sequential scan of the table
-        // minOp = new SequentialScanOperator(this.transaction, table);
+        minOp = new SequentialScanOperator(this.transaction, table);
 
         // TODO(proj3_part2): implement
 
         // 1. Find the cost of a sequential scan of the table
+        int minimumCost = minOp.cost;
 
         // 2. For each eligible index column, find the cost of an index scan of the
         // table and retain the lowest cost operator
+        List<Integer> eligibleIndexColumn = getEligibleIndexColumns(table);
+        int minimumIndexCost = - 1;
 
+        for (int i : eligibleIndexColumn) {
+            QueryOperator temp = new IndexScanOperator(transaction, table, selectColumnNames.get(i), selectOperators.get(i), selectDataBoxes.get(i));
+            int costTemp = temp.estimateIOCost();
+            if (minimumCost > costTemp) {
+                minimumCost = costTemp;
+                minOp = temp;
+                minimumIndexCost = i;
+            }
+        }
         // 3. Push down SELECT predicates that apply to this table and that were not
         // used for an index scan
+        minOp = addEligibleSelections(minOp, minimumIndexCost);
 
         return minOp;
     }
@@ -412,6 +443,36 @@ public class QueryPlan {
          * --- Then given the operator, use minCostJoinType to calculate the cheapest join with that
          * and the previously joined tables.
          */
+        QueryOperator oPMin = null;
+        for (Set temp: prevMap.keySet()) {
+            for (int i = 0; i < this.joinTableNames.size(); i++) {
+                String[] leftColInd = this.getJoinLeftColumnNameByIndex(i);
+                String[] rightColInd = this.getJoinRightColumnNameByIndex(i);
+                QueryOperator leftTemp = null;
+                QueryOperator rightTemp = null;
+                Set set = null;
+                if (temp.contains(leftColInd[0]) && !temp.contains(rightColInd[0])) {
+                    leftTemp = prevMap.get(temp);
+                    set = new HashSet(Collections.singleton(rightColInd[0]));
+                    rightTemp = pass1Map.get(set);
+                    oPMin = minCostJoinType(leftTemp, rightTemp, leftColInd[1], rightColInd[1]);
+                }
+                else if (temp.contains(rightColInd[0]) && !temp.contains(leftColInd[0])) {
+                    set = new HashSet(Collections.singleton(leftColInd[0]));
+                    leftTemp = pass1Map.get(set);
+                    rightTemp = prevMap.get(temp);
+                    oPMin = minCostJoinType(leftTemp, rightTemp, leftColInd[1], rightColInd[1]);
+                }
+                else {
+                    oPMin = minCostJoinType(leftTemp, rightTemp, leftColInd[1], rightColInd[1]);
+                    continue;
+                }
+                set.addAll(temp);
+                if (!map.containsKey(set) || map.get(set).getIOCost() > oPMin.getIOCost()) {
+                    map.put(set, oPMin);
+                }
+            }
+        }
 
         return map;
     }
