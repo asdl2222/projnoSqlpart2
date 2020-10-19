@@ -464,7 +464,6 @@ public class QueryPlan {
                     oPMin = minCostJoinType(leftTemp, rightTemp, leftColInd[1], rightColInd[1]);
                 }
                 else {
-                    oPMin = minCostJoinType(leftTemp, rightTemp, leftColInd[1], rightColInd[1]);
                     continue;
                 }
                 set.addAll(temp);
